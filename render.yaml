@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: tiktok-war-v3
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: TIKTOK_USERNAME
+        sync: false
+      - key: AUTO_EVENTS
+        value: "true"
