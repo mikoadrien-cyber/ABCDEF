@@ -1,18 +1,14 @@
 {
-  "name": "tiktok-war-v3",
-  "version": "3.0.0",
-  "description": "TikTok WAR - interactive territory war with narrative events, alliances and betrayals",
+  "name": "gacha-arena",
+  "version": "1.0.0",
+  "description": "TikTok LIVE gacha wheel game — gifts spin the wheel, viewers climb the leaderboard.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "node --watch server.js"
-  },
-  "engines": {
-    "node": ">=18"
+    "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "ws": "^8.18.0",
-    "tiktok-live-connector": "^2.1.2"
+    "express": "^4.19.2",
+    "ws": "^8.17.0",
+    "tiktok-live-connector": "^1.2.10"
   }
 }

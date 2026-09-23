@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: tiktok-war-v3
+    name: gacha-arena
     env: node
     buildCommand: npm install
     startCommand: npm start
@@ -11,5 +11,3 @@ services:
         sync: false
       - key: TIKTOK_USERNAME
         sync: false
-      - key: AUTO_EVENTS
-        value: "true"

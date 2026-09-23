@@ -15,62 +15,50 @@ const wss = new WebSocketServer({ server });
 const PORT = process.env.PORT || 10000;
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN || "change-me";
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME || "";
-const AUTO_EVENTS = process.env.AUTO_EVENTS !== "false";
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, "public")));
 
-const COLORS = ["#36a3ff", "#ff405f", "#42d17b", "#ffd23f", "#a66cff", "#ff8a3d"];
+// ---------------------------------------------------------------------------
+// Prize table. `rarity` (0 = most common) drives how gift size shifts odds.
+// ---------------------------------------------------------------------------
+const PRIZES = [
+  { id: "spark",   label: "+10",  short: "Spark",       color: "#35E0C7", points: 10,  rarity: 0, weight: 30 },
+  { id: "glow",    label: "+25",  short: "Glow",        color: "#FFC145", points: 25,  rarity: 1, weight: 22 },
+  { id: "shield",  label: "60s",  short: "Shield",      color: "#4C8DFF", points: 5,   rarity: 2, weight: 12, effect: "shield" },
+  { id: "surge",   label: "+50",  short: "Surge",       color: "#FF3D7F", points: 50,  rarity: 2, weight: 15 },
+  { id: "double",  label: "x2",   short: "Double",      color: "#B46CFF", points: 5,   rarity: 3, weight: 9,  effect: "double" },
+  { id: "blast",   label: "+100", short: "Blast",       color: "#FFC145", points: 100, rarity: 3, weight: 7 },
+  { id: "steal",   label: "20%",  short: "Crown Steal", color: "#FF5C3D", points: 0,   rarity: 4, weight: 3,  effect: "steal" },
+  { id: "jackpot", label: "+300", short: "JACKPOT",     color: "#FFD23F", points: 300, rarity: 5, weight: 2 }
+];
+
+const SLICE_ANGLE = 360 / PRIZES.length;
+
+const COLORS = ["#35E0C7", "#FF3D7F", "#FFC145", "#B46CFF", "#4C8DFF", "#FF5C3D"];
 
 const state = {
-  version: 3,
+  version: 1,
   connected: false,
   liveUsername: TIKTOK_USERNAME,
-  tick: 0,
-  season: {
-    startedAt: Date.now(),
-    title: "THE GREAT WAR"
-  },
+  startedAt: Date.now(),
+  title: "GACHA ARENA",
   players: {},
-  territories: [],
-  alliances: [],
-  activeEvents: [],
   timeline: [],
-  pendingDiplomacy: [],
-  stats: {
-    gifts: 0,
-    comments: 0,
-    likes: 0,
-    battles: 0,
-    betrayals: 0,
-    alliances: 0,
-    territoryChanges: 0
-  }
+  lastSpin: null,
+  stats: { gifts: 0, comments: 0, likes: 0, spins: 0, jackpots: 0, steals: 0 }
 };
 
 function uid(prefix = "id") {
   return prefix + "_" + Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
 }
-
-function clamp(n, min, max) {
-  return Math.max(min, Math.min(max, n));
-}
-
-function now() {
-  return Date.now();
-}
+function now() { return Date.now(); }
+function clamp(n, min, max) { return Math.max(min, Math.min(max, n)); }
 
 function addTimeline(type, title, text, meta = {}) {
-  const item = {
-    id: uid("story"),
-    ts: now(),
-    type,
-    title,
-    text,
-    meta
-  };
+  const item = { id: uid("evt"), ts: now(), type, title, text, meta };
   state.timeline.unshift(item);
-  state.timeline = state.timeline.slice(0, 80);
+  state.timeline = state.timeline.slice(0, 60);
   broadcast({ type: "STORY", item });
   return item;
 }
@@ -82,304 +70,142 @@ function ensurePlayer(id, name = id) {
       id,
       name: String(name).slice(0, 18),
       color,
-      territoryCount: 0,
-      power: 100,
+      points: 0,
+      spins: 0,
       coins: 0,
       shieldUntil: 0,
-      heroUntil: 0,
-      reputation: 0,
-      alive: true,
+      doubleNext: false,
+      bestPrize: null,
       createdAt: now()
     };
   }
   return state.players[id];
 }
 
-function createMap() {
-  const cols = 8;
-  const rows = 5;
-  const territories = [];
-  for (let y = 0; y < rows; y++) {
-    for (let x = 0; x < cols; x++) {
-      territories.push({
-        id: `t_${y}_${x}`,
-        x, y,
-        owner: null,
-        hp: 100,
-        fortified: false,
-        vulnerableUntil: 0,
-        special: (x === 3 && y === 2) ? "CAPITAL" : null
-      });
-    }
-  }
-  state.territories = territories;
-}
-createMap();
-
-function recalcTerritories() {
-  for (const p of Object.values(state.players)) p.territoryCount = 0;
-  for (const t of state.territories) {
-    if (t.owner && state.players[t.owner]) state.players[t.owner].territoryCount++;
-  }
-}
-
-function adjacent(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y) === 1;
-}
-
-function randomTerritory(filter = () => true) {
-  const list = state.territories.filter(filter);
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-function ownedTerritories(playerId) {
-  return state.territories.filter(t => t.owner === playerId);
-}
-
-function enemyTerritories(playerId) {
-  return state.territories.filter(t => t.owner && t.owner !== playerId);
-}
-
-function isAllied(a, b) {
-  return state.alliances.some(x =>
-    x.active &&
-    ((x.a === a && x.b === b) || (x.a === b && x.b === a))
-  );
-}
-
-function addAlliance(a, b, duration = 120000) {
-  if (a === b || isAllied(a, b)) return false;
-  state.alliances.push({
-    id: uid("ally"),
-    a, b,
-    active: true,
-    createdAt: now(),
-    expiresAt: now() + duration
-  });
-  state.stats.alliances++;
-  addTimeline("ALLIANCE", "🤝 ALLIANCE", `${state.players[a]?.name || a} and ${state.players[b]?.name || b} are now allies.`);
-  broadcastState();
-  return true;
-}
-
-function breakAlliance(a, b, reason = "betrayal") {
-  const ally = state.alliances.find(x =>
-    x.active && ((x.a === a && x.b === b) || (x.a === b && x.b === a))
-  );
-  if (!ally) return false;
-  ally.active = false;
-  state.stats.betrayals++;
-  addTimeline("BETRAYAL", "☠️ BETRAYAL", `${state.players[a]?.name || a} has broken the alliance with ${state.players[b]?.name || b}.`, { reason });
-  broadcastState();
-  return true;
-}
-
-function claimTerritory(playerId, territoryId, reason = "conquest") {
-  const p = ensurePlayer(playerId);
-  const t = state.territories.find(x => x.id === territoryId);
-  if (!t) return false;
-  const previous = t.owner;
-  if (previous === playerId) return false;
-
-  if (previous && isAllied(previous, playerId)) return false;
-  if (previous && state.players[previous]) state.players[previous].power = clamp(state.players[previous].power - 5, 0, 999);
-
-  t.owner = playerId;
-  t.hp = 100;
-  t.fortified = false;
-  state.stats.territoryChanges++;
-  recalcTerritories();
-
-  const oldName = previous ? state.players[previous]?.name || previous : "NEUTRAL";
-  addTimeline("CONQUEST", "⚔️ TERRITORY FALLS", `${p.name} captured ${t.id} from ${oldName}.`, {
-    territoryId, from: previous, to: playerId, reason
-  });
-  return true;
-}
-
-function attack(playerId, targetId, intensity = 1) {
-  const attacker = ensurePlayer(playerId);
-  const target = state.players[targetId];
-  if (!target || targetId === playerId) return false;
-
-  const candidates = ownedTerritories(targetId).filter(t => {
-    return ownedTerritories(playerId).some(a => adjacent(a, t));
-  });
-  const targetTerritory = candidates[0] || ownedTerritories(targetId)[0];
-  if (!targetTerritory) return false;
-
-  if (isAllied(playerId, targetId)) {
-    addTimeline("BLOCKED", "🕊️ ATTACK BLOCKED", `${attacker.name} tried to attack an ally.`);
-    return false;
-  }
-
-  if (target.shieldUntil > now()) {
-    addTimeline("DEFENSE", "🛡️ SHIELD HOLDS", `${target.name} resisted an attack.`);
-    return false;
-  }
-
-  const damage = 20 + Math.floor(Math.random() * 35) * intensity + (attacker.heroUntil > now() ? 25 : 0);
-  targetTerritory.hp -= damage;
-  state.stats.battles++;
-
-  if (targetTerritory.hp <= 0) {
-    claimTerritory(playerId, targetTerritory.id, "battle");
-    addTimeline("BATTLE", "💥 BREAKTHROUGH", `${attacker.name} broke through ${target.name}'s defenses.`);
-  } else {
-    addTimeline("BATTLE", "⚔️ BATTLE", `${attacker.name} attacked ${target.name} — ${Math.max(0, targetTerritory.hp)} HP remains.`);
-  }
-
-  attacker.power = clamp(attacker.power + 2 * intensity, 0, 999);
-  return true;
-}
-
-function randomEnemy(playerId) {
-  const candidates = Object.values(state.players).filter(p => p.id !== playerId && p.alive);
-  return candidates[Math.floor(Math.random() * candidates.length)];
-}
-
-function activateEvent(type, actorId, data = {}) {
-  const actor = ensurePlayer(actorId);
-  let target = data.targetId ? state.players[data.targetId] : randomEnemy(actorId);
-
-  if (type === "SCOUT") {
-    addTimeline("SCOUT", "🕵️ SCOUT", `${actor.name} sent scouts across the map.`);
-    const t = randomTerritory();
-    if (t) {
-      t.vulnerableUntil = now() + 30000;
-      addTimeline("SECRET", "👁️ SECRET DISCOVERY", `${actor.name} discovered a weakness in ${t.id}.`, { territoryId: t.id });
-    }
-  }
-
-  if (type === "REINFORCEMENT") {
-    actor.power = clamp(actor.power + 20, 0, 999);
-    addTimeline("REINFORCEMENT", "🪖 REINFORCEMENTS", `${actor.name} receives reinforcements.`);
-  }
-
-  if (type === "INVASION") {
-    if (target) attack(actorId, target.id, 2);
-    else addTimeline("INVASION", "⚔️ INVASION", `${actor.name} prepares an invasion.`);
-  }
-
-  if (type === "HERO") {
-    actor.heroUntil = now() + 90000;
-    actor.power = clamp(actor.power + 60, 0, 999);
-    addTimeline("HERO", "👑 HERO ARRIVES", `${actor.name}'s hero joins the war for 90 seconds.`);
-  }
-
-  if (type === "SHIELD") {
-    actor.shieldUntil = now() + 60000;
-    addTimeline("SHIELD", "🛡️ FORTRESS SHIELD", `${actor.name} is protected for 60 seconds.`);
-  }
-
-  if (type === "ALLIANCE") {
-    if (target) addAlliance(actorId, target.id, 90000);
-  }
-
-  if (type === "BETRAYAL") {
-    if (target) {
-      if (isAllied(actorId, target.id)) {
-        breakAlliance(actorId, target.id);
-        attack(actorId, target.id, 2);
-      } else {
-        addTimeline("BETRAYAL", "☠️ BETRAYAL FAILED", `${actor.name} has no alliance to betray with ${target.name}.`);
-      }
-    }
-  }
-
-  if (type === "ESPIONAGE") {
-    const t = target ? ownedTerritories(target.id)[0] : randomTerritory();
-    if (t) {
-      t.vulnerableUntil = now() + 60000;
-      addTimeline("ESPIONAGE", "🕵️ ESPIONAGE", `${actor.name} discovered a weakness near ${target?.name || "an enemy"}.`, { territoryId: t.id });
-    }
-  }
-
-  if (type === "SABOTAGE") {
-    const t = target ? ownedTerritories(target.id)[0] : randomTerritory();
-    if (t) {
-      t.hp = Math.max(1, t.hp - 50);
-      t.fortified = false;
-      addTimeline("SABOTAGE", "💣 SABOTAGE", `${actor.name} sabotaged ${t.id}.`, { territoryId: t.id });
-    }
-  }
-
-  if (type === "CATASTROPHE") {
-    const t = randomTerritory(x => x.owner !== actorId);
-    if (t) {
-      t.hp = Math.max(1, t.hp - 80);
-      addTimeline("CATASTROPHE", "🌋 CATASTROPHE", `A catastrophe struck ${t.id}.`, { territoryId: t.id });
-    }
-  }
-
-  if (type === "WAR") {
-    const enemy = target || randomEnemy(actorId);
-    if (enemy) {
-      addTimeline("WAR", "🔥 TOTAL WAR", `${actor.name} declared total war on ${enemy.name}.`);
-      for (let i = 0; i < 2; i++) attack(actorId, enemy.id, 1);
-    }
-  }
-
-  broadcastState();
-}
-
-const giftRules = [
-  { min: 1, max: 5, event: "SCOUT" },
-  { min: 6, max: 20, event: "REINFORCEMENT" },
-  { min: 21, max: 100, event: "INVASION" },
-  { min: 101, max: 300, event: "ESPIONAGE" },
-  { min: 301, max: 700, event: "SABOTAGE" },
-  { min: 701, max: 1500, event: "HERO" },
-  { min: 1501, max: 3000, event: "SHIELD" },
-  { min: 3001, max: Infinity, event: "WAR" }
+// ---------------------------------------------------------------------------
+// Odds: bigger gifts skew the wheel toward rarer prizes without changing
+// how many times it spins — one gift, one spin, better luck.
+// ---------------------------------------------------------------------------
+const GIFT_TIERS = [
+  { min: 1,    max: 5,    luck: 0 },
+  { min: 6,    max: 20,   luck: 0.15 },
+  { min: 21,   max: 100,  luck: 0.3 },
+  { min: 101,  max: 300,  luck: 0.5 },
+  { min: 301,  max: 700,  luck: 0.7 },
+  { min: 701,  max: 1500, luck: 0.85 },
+  { min: 1501, max: Infinity, luck: 1 }
 ];
 
-function eventForCoins(coins) {
-  const rule = giftRules.find(r => coins >= r.min && coins <= r.max);
-  return rule ? rule.event : "SCOUT";
+function luckForCoins(coins) {
+  const tier = GIFT_TIERS.find(t => coins >= t.min && coins <= t.max);
+  return tier ? tier.luck : 0;
+}
+
+function weightedPick(luck) {
+  const weights = PRIZES.map(p => p.weight * (1 + luck * p.rarity * 0.6));
+  const total = weights.reduce((a, b) => a + b, 0);
+  let roll = Math.random() * total;
+  for (let i = 0; i < PRIZES.length; i++) {
+    roll -= weights[i];
+    if (roll <= 0) return i;
+  }
+  return PRIZES.length - 1;
+}
+
+function getLeader(excludeId) {
+  let leader = null;
+  for (const p of Object.values(state.players)) {
+    if (p.id === excludeId) continue;
+    if (!leader || p.points > leader.points) leader = p;
+  }
+  return leader;
+}
+
+function applyPrize(player, prize) {
+  let pts = prize.points || 0;
+  let note = "";
+
+  if (player.doubleNext) {
+    pts *= 2;
+    player.doubleNext = false;
+    note = " (doubled!)";
+  }
+
+  if (prize.effect === "shield") {
+    player.shieldUntil = now() + 60000;
+  }
+
+  if (prize.effect === "double") {
+    player.doubleNext = true;
+  }
+
+  if (prize.effect === "steal") {
+    const leader = getLeader(player.id);
+    if (leader && leader.shieldUntil <= now() && leader.points > 0) {
+      const stolen = Math.floor(leader.points * 0.2);
+      leader.points = clamp(leader.points - stolen, 0, 9999999);
+      pts += stolen;
+      state.stats.steals++;
+      addTimeline("STEAL", "⚔️ CROWN STOLEN", `${player.name} stole ${stolen} pts from ${leader.name}.`);
+    } else {
+      note = " (no target)";
+    }
+  }
+
+  player.points = clamp(player.points + pts, 0, 9999999);
+  player.spins++;
+  if (prize.id === "jackpot") state.stats.jackpots++;
+
+  return note;
 }
 
 function processGift({ userId, username, coins = 1, giftName = "Gift" }) {
   const player = ensurePlayer(userId || username, username || userId);
-  player.coins += Number(coins) || 1;
+  const cleanCoins = Math.max(1, Number(coins) || 1);
+  player.coins += cleanCoins;
   state.stats.gifts++;
+  state.stats.spins++;
 
-  const event = eventForCoins(Number(coins) || 1);
-  addTimeline("GIFT", "🎁 GIFT RECEIVED", `${player.name} sent ${giftName} → ${event}.`, { coins, giftName, event });
-  activateEvent(event, player.id);
+  const luck = luckForCoins(cleanCoins);
+  const prizeIndex = weightedPick(luck);
+  const prize = PRIZES[prizeIndex];
+  const note = applyPrize(player, prize);
+
+  state.lastSpin = {
+    playerId: player.id,
+    playerName: player.name,
+    playerColor: player.color,
+    prizeIndex,
+    prizeId: prize.id,
+    coins: cleanCoins,
+    ts: now()
+  };
+
+  broadcast({ type: "SPIN", spin: state.lastSpin });
+  addTimeline(
+    prize.id === "jackpot" ? "JACKPOT" : "GIFT",
+    prize.id === "jackpot" ? "👑 JACKPOT!" : "🎡 SPIN",
+    `${player.name} sent ${giftName} (${cleanCoins}) → ${prize.short}${note}`,
+    { giftName, coins: cleanCoins, prize: prize.id }
+  );
+  broadcastState();
 }
 
 function processComment({ userId, username, comment }) {
   const player = ensurePlayer(userId || username, username || userId);
   state.stats.comments++;
-
-  const text = String(comment || "").toLowerCase().trim();
-
-  if (text === "!alliance" || text === "!ally") {
-    const target = randomEnemy(player.id);
-    if (target) addAlliance(player.id, target.id, 60000);
-  } else if (text === "!war") {
-    activateEvent("WAR", player.id);
-  } else if (text === "!attack") {
-    activateEvent("INVASION", player.id);
-  } else if (text === "!shield") {
-    activateEvent("SHIELD", player.id);
-  } else {
-    addTimeline("COMMENT", "💬 COMMENT", `${player.name}: ${String(comment).slice(0, 100)}`);
-  }
+  addTimeline("COMMENT", "💬 COMMENT", `${player.name}: ${String(comment || "").slice(0, 100)}`);
   broadcastState();
 }
 
-function processLike({ userId, username }) {
+function processLike({ userId, username, count = 1 }) {
   const player = ensurePlayer(userId || username, username || userId);
-  state.stats.likes++;
-  if (state.stats.likes % 25 === 0) {
-    activateEvent("REINFORCEMENT", player.id);
-  }
+  state.stats.likes += Number(count) || 1;
+  broadcastState();
 }
 
 function snapshot() {
-  return JSON.parse(JSON.stringify(state));
+  return JSON.parse(JSON.stringify({ ...state, prizes: PRIZES }));
 }
 
 function broadcast(message) {
@@ -388,80 +214,52 @@ function broadcast(message) {
     if (client.readyState === 1) client.send(data);
   }
 }
-
 function broadcastState() {
   broadcast({ type: "STATE", state: snapshot() });
 }
 
 function requireAdmin(req, res, next) {
-  const token = req.headers["x-admin-token"] || req.body?.token || req.query?.token;
+  const token = req.headers["x-admin-token"] || req.body?.token;
   if (token !== ADMIN_TOKEN) return res.status(401).json({ error: "Unauthorized" });
   next();
 }
 
 app.get("/api/state", (_, res) => res.json(snapshot()));
 
-app.post("/api/player", requireAdmin, (req, res) => {
-  const { id, name } = req.body || {};
-  if (!id || !name) return res.status(400).json({ error: "id and name required" });
-  const p = ensurePlayer(id, name);
-  if (state.territories.every(t => !t.owner)) {
-    const t = randomTerritory();
-    if (t) claimTerritory(id, t.id, "founding");
-  }
-  broadcastState();
-  res.json(p);
+app.post("/api/gift", requireAdmin, (req, res) => {
+  const { name, coins, giftName } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  processGift({ userId: name, username: name, coins: coins || 1, giftName: giftName || "Gift" });
+  res.json({ ok: true, state: snapshot() });
+});
+
+app.post("/api/comment", requireAdmin, (req, res) => {
+  const { name, comment } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  processComment({ userId: name, username: name, comment: comment || "..." });
+  res.json({ ok: true });
+});
+
+app.post("/api/like", requireAdmin, (req, res) => {
+  const { name, count } = req.body || {};
+  if (!name) return res.status(400).json({ error: "name required" });
+  processLike({ userId: name, username: name, count: count || 1 });
+  res.json({ ok: true });
 });
 
 app.delete("/api/player/:id", requireAdmin, (req, res) => {
-  const id = req.params.id;
-  delete state.players[id];
-  for (const t of state.territories) if (t.owner === id) t.owner = null;
-  state.alliances = state.alliances.filter(a => a.a !== id && a.b !== id);
-  recalcTerritories();
+  delete state.players[req.params.id];
   broadcastState();
   res.json({ ok: true });
-});
-
-app.post("/api/event", requireAdmin, (req, res) => {
-  const { type, actorId, targetId } = req.body || {};
-  if (!type || !actorId) return res.status(400).json({ error: "type and actorId required" });
-  ensurePlayer(actorId, actorId);
-  if (targetId) ensurePlayer(targetId, targetId);
-  activateEvent(String(type).toUpperCase(), actorId, { targetId });
-  res.json({ ok: true, state: snapshot() });
-});
-
-app.post("/api/claim", requireAdmin, (req, res) => {
-  const { playerId, territoryId } = req.body || {};
-  ensurePlayer(playerId, playerId);
-  claimTerritory(playerId, territoryId, "manual");
-  broadcastState();
-  res.json({ ok: true });
-});
-
-app.post("/api/alliance", requireAdmin, (req, res) => {
-  const { a, b, action = "create" } = req.body || {};
-  if (action === "break") breakAlliance(a, b, "manual");
-  else addAlliance(a, b);
-  res.json({ ok: true, state: snapshot() });
 });
 
 app.post("/api/reset", requireAdmin, (_, res) => {
-  for (const t of state.territories) {
-    t.owner = null;
-    t.hp = 100;
-    t.fortified = false;
-    t.vulnerableUntil = 0;
-  }
   state.players = {};
-  state.alliances = [];
-  state.activeEvents = [];
   state.timeline = [];
-  state.pendingDiplomacy = [];
-  state.stats = { gifts: 0, comments: 0, likes: 0, battles: 0, betrayals: 0, alliances: 0, territoryChanges: 0 };
-  state.season.startedAt = now();
-  addTimeline("SYSTEM", "🆕 NEW SEASON", "A new war has begun.");
+  state.lastSpin = null;
+  state.stats = { gifts: 0, comments: 0, likes: 0, spins: 0, jackpots: 0, steals: 0 };
+  state.startedAt = now();
+  addTimeline("SYSTEM", "🆕 NEW SEASON", "The wheel resets. Good luck.");
   broadcastState();
   res.json({ ok: true });
 });
@@ -472,9 +270,13 @@ wss.on("connection", ws => {
   ws.send(JSON.stringify({ type: "STATE", state: snapshot() }));
 });
 
+function giftNameFallback(data) {
+  return data.gift?.giftName || data.gift?.name || "Gift";
+}
+
 function startTikTok() {
   if (!TIKTOK_USERNAME || !TikTokLiveConnection || !WebcastEvent) {
-    addTimeline("SYSTEM", "🧪 DEMO MODE", "TikTok is not connected. Use the control panel to simulate events.");
+    addTimeline("SYSTEM", "🧪 DEMO MODE", "TikTok is not connected. Use the control panel to simulate gifts.");
     return;
   }
 
@@ -498,8 +300,6 @@ function startTikTok() {
       const gift = data.gift || {};
       const repeatEnd = data.repeatEnd;
       const repeatCount = Number(data.repeatCount || 1);
-
-      // Only process the final repeat packet for streak gifts.
       if (repeatEnd === false) return;
 
       const baseCoins = Number(gift.diamond_count || gift.diamondCount || 1);
@@ -524,7 +324,8 @@ function startTikTok() {
       const user = data.user || {};
       processLike({
         userId: user.userId || user.uniqueId,
-        username: user.uniqueId || user.nickname || "viewer"
+        username: user.uniqueId || user.nickname || "viewer",
+        count: Number(data.likeCount || 1)
       });
     });
   } catch (err) {
@@ -532,37 +333,8 @@ function startTikTok() {
   }
 }
 
-function giftNameFallback(data) {
-  return data.gift?.giftName || data.gift?.name || "Gift";
-}
-
-// Automatic story events keep the world alive between gifts.
-setInterval(() => {
-  state.tick++;
-
-  const nowMs = now();
-
-  state.alliances = state.alliances.filter(a => a.active && a.expiresAt > nowMs);
-
-  if (AUTO_EVENTS && state.tick % 45 === 0 && Object.keys(state.players).length >= 2) {
-    const players = Object.values(state.players);
-    const actor = players[Math.floor(Math.random() * players.length)];
-    if (Math.random() < 0.35) {
-      const enemy = randomEnemy(actor.id);
-      if (enemy) {
-        addTimeline("RUMOR", "👀 WAR RUMOR", `Rumors say ${actor.name} is preparing something against ${enemy.name}...`);
-      }
-    }
-  }
-
-  if (state.tick % 5 === 0) {
-    recalcTerritories();
-    broadcastState();
-  }
-}, 1000);
-
 startTikTok();
 
 server.listen(PORT, () => {
-  console.log(`TIKTOK WAR V3 listening on ${PORT}`);
+  console.log(`GACHA ARENA listening on ${PORT}`);
 });

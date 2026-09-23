@@ -1,34 +1,25 @@
-# TIKTOK WAR V3
+# GACHA ARENA
 
-A mobile-friendly TikTok LIVE territory game.
+A TikTok LIVE gacha-wheel game. Every gift spins the wheel; bigger gifts skew the odds
+toward rarer prizes. Viewers climb a live leaderboard. Built for maximum gift volume:
+the wheel pays out on every single gift, no waiting for a "big moment".
 
 ## Core loop
 
-TikTok LIVE -> comments / likes / gifts -> Event Engine -> World State -> WebSocket -> LIVE + CONTROL
+TikTok LIVE gift -> weighted spin -> points / shield / double / crown-steal -> leaderboard update -> WebSocket -> LIVE screen + CONTROL panel
 
-The game is designed so viewers influence the war, while the host remains the game master.
+## Prizes
 
-## Included
+| Prize | Effect |
+|---|---|
+| Spark / Glow / Surge / Blast | Flat points |
+| Shield | 60s immunity from Crown Steal |
+| Double | Next spin's points are doubled |
+| Crown Steal | Takes 20% of the current leader's points |
+| Jackpot | +300 points, rarest slice |
 
-- Territory map
-- Players and kingdoms
-- Automatic gift events
-- Alliances
-- Betrayals
-- Espionage
-- Sabotage
-- Invasions
-- Shields
-- Heroes
-- Catastrophes
-- Secret events
-- Story timeline
-- Live HUD
-- Mobile control panel
-- Manual event controls
-- Player management
-- TikTok connector adapter
-- Demo mode for testing without TikTok
+Bigger gifts don't add more spins — they shift the odds toward the rarer, juicier
+prizes. One gift, one spin, better luck.
 
 ## Run locally
 
@@ -37,34 +28,17 @@ npm install
 npm start
 ```
 
-Open:
+- `/` = LIVE screen (use as an OBS browser source)
+- `/control` = host control panel (simulate gifts without a live TikTok stream)
+- `/api/state` = current state (JSON)
 
-- `/` = LIVE screen
-- `/control` = host control
-- `/api/state` = current state
+## Deploy on Render
 
-For testing without TikTok, use the DEMO buttons in the control panel.
-
-## Render
-
-Create a Web Service from this project.
-
-Build:
-`npm install`
-
-Start:
-`npm start`
-
-Environment variables:
-
-- `ADMIN_TOKEN`
-- `TIKTOK_USERNAME`
-- `AUTO_EVENTS=true`
-
-Important: TikTok connector behavior can change independently of this project. The TikTok adapter is isolated in `server.js`, so it can be replaced without changing the game engine.
+- Build: `npm install`
+- Start: `npm start`
+- Env vars: `ADMIN_TOKEN` (required), `TIKTOK_USERNAME` (optional — leave empty for demo mode)
 
 ## Security
 
-The control page uses `ADMIN_TOKEN` for API actions. Change it before deployment.
-
-This project does not let viewers directly control the map. TikTok interactions create game events; the host controls sensitive diplomatic/manual actions.
+`/control` and all `/api/*` write endpoints require `ADMIN_TOKEN`. Change it before
+going live — anyone with the token can trigger gifts and steal points.
