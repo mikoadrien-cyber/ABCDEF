@@ -1,0 +1,60 @@
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Manrope:wght@400;600;700;800&display=swap');
+
+:root {
+  --bg: #0F0B1E;
+  --panel: #17122A;
+  --panel-2: #1F1838;
+  --line: #2E2650;
+  --text: #F5F1FF;
+  --muted: #9A92BE;
+  --gold: #FFC145;
+  --pink: #FF3D7F;
+  --teal: #35E0C7;
+  --purple: #B46CFF;
+  --display: 'Bebas Neue', system-ui, sans-serif;
+  --body: 'Manrope', system-ui, -apple-system, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 50% -10%, #241a44 0%, var(--bg) 55%);
+  color: var(--text);
+  font-family: var(--body);
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-thumb { background: var(--line); border-radius: 3px; }
+
+a { color: inherit; }
+
+.eyebrow {
+  font-size: 12px;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+}
+
+button {
+  font-family: var(--body);
+  cursor: pointer;
+  border: none;
+}
+
+button:focus-visible, input:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}

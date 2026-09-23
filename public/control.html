@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gacha Arena — Control</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body { padding: 18px; max-width: 480px; margin: 0 auto 60px; }
+  h1 {
+    font-family: var(--display);
+    font-size: 28px;
+    letter-spacing: 0.02em;
+    margin: 6px 0 2px;
+    background: linear-gradient(90deg, var(--gold), var(--pink));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .sub { color: var(--muted); font-size: 13px; margin-bottom: 18px; }
+
+  .card { padding: 16px; margin-bottom: 14px; }
+  .card h2 { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 700; }
+
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    color: var(--text);
+    padding: 10px 12px;
+    font-size: 14px;
+    margin-bottom: 10px;
+  }
+
+  .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+
+  .btn {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    color: var(--text);
+    padding: 12px 8px;
+    font-size: 13px;
+    font-weight: 700;
+    text-align: center;
+  }
+  .btn small { display: block; color: var(--muted); font-weight: 500; font-size: 11px; margin-top: 2px; }
+  .btn:active { transform: scale(0.97); }
+  .btn.gold { border-color: var(--gold); color: var(--gold); }
+  .btn.pink { border-color: var(--pink); color: var(--pink); }
+  .btn.teal { border-color: var(--teal); color: var(--teal); }
+  .btn.full { grid-column: 1 / -1; }
+  .btn.danger { border-color: #ff5c5c; color: #ff5c5c; }
+
+  .toast {
+    position: fixed;
+    bottom: 18px; left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    padding: 10px 18px;
+    border-radius: 10px;
+    font-size: 13px;
+    opacity: 0;
+    transition: all 0.25s;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+  <h1>ARENA CONTROL</h1>
+  <div class="sub">Host panel — simulate gifts or run a real TikTok LIVE.</div>
+
+  <div class="card panel">
+    <h2>ADMIN TOKEN</h2>
+    <input id="token" type="password" placeholder="Paste ADMIN_TOKEN">
+  </div>
+
+  <div class="card panel">
+    <h2>SIMULATE GIFT</h2>
+    <input id="giftName" type="text" placeholder="Viewer name" value="Viewer1">
+    <div class="grid3">
+      <button class="btn" data-coins="1">Rose<small>1</small></button>
+      <button class="btn" data-coins="20">Heart<small>20</small></button>
+      <button class="btn gold" data-coins="100">Lion<small>100</small></button>
+      <button class="btn gold" data-coins="500">Castle<small>500</small></button>
+      <button class="btn pink" data-coins="1500">Rocket<small>1500</small></button>
+      <button class="btn pink" data-coins="5000">Universe<small>5000</small></button>
+    </div>
+  </div>
+
+  <div class="card panel">
+    <h2>SIMULATE COMMENT / LIKE</h2>
+    <input id="chatName" type="text" placeholder="Viewer name" value="Viewer1">
+    <input id="chatText" type="text" placeholder="Comment text" value="let's go!!">
+    <div class="grid">
+      <button class="btn teal" id="btnComment">Send comment</button>
+      <button class="btn teal" id="btnLike">Send 10 likes</button>
+    </div>
+  </div>
+
+  <div class="card panel">
+    <h2>SEASON</h2>
+    <button class="btn danger full" id="btnReset">Reset everything</button>
+  </div>
+
+  <div class="card panel">
+    <h2>LINKS</h2>
+    <div class="sub" style="margin-bottom:6px">Open the live screen for OBS/browser source:</div>
+    <a href="/" target="_blank">/  → LIVE screen</a>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+<script src="/control.js"></script>
+</body>
+</html>
