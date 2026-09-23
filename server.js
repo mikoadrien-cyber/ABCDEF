@@ -1,11 +1,15 @@
-const express = require("express");
-const http = require("http");
-const path = require("path");
-const { WebSocketServer } = require("ws");
+import express from "express";
+import http from "http";
+import path from "path";
+import { fileURLToPath } from "url";
+import { WebSocketServer } from "ws";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let TikTokLiveConnection, WebcastEvent;
 try {
-  ({ TikTokLiveConnection, WebcastEvent } = require("tiktok-live-connector"));
+  ({ TikTokLiveConnection, WebcastEvent } = await import("tiktok-live-connector"));
 } catch (_) {}
 
 const app = express();
